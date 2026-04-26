@@ -13,7 +13,7 @@ st.title("📊 Analisis Emosi & Segmentasi Nasabah")
 # =========================
 # API CONFIG
 # =========================
-PRIMARY_API = "https://api-inference.huggingface.co/models/envidevelopment/sentiment-banking"
+PRIMARY_API = "https://api-inference.huggingface.co/models/envidevelopment/model2"
 FALLBACK_API = "https://api-inference.huggingface.co/models/w11wo/indonesian-roberta-base-sentiment-classifier"
 
 HF_TOKEN = st.secrets.get("HF_TOKEN", "")
