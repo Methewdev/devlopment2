@@ -11,9 +11,9 @@ st.set_page_config(page_title="Analisis Emosi & Segmentasi", layout="wide")
 st.title("📊 Analisis Emosi & Segmentasi Nasabah")
 
 # =========================
-# API MODEL (STABIL)
+# API CONFIG (FIXED ENDPOINT)
 # =========================
-API_URL = "https://api-inference.huggingface.co/models/w11wo/indonesian-roberta-base-sentiment-classifier"
+API_URL = "https://api-inference.huggingface.co/pipeline/text-classification/w11wo/indonesian-roberta-base-sentiment-classifier"
 
 HF_TOKEN = st.secrets.get("HF_TOKEN", "")
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
@@ -30,14 +30,15 @@ def call_api(text):
             timeout=20
         )
 
-        # cek status
+        # error status
         if response.status_code != 200:
             return {"error": f"{response.status_code}: {response.text}"}
 
-        # cek kosong
+        # response kosong
         if not response.text.strip():
             return {"error": "Response kosong"}
 
+        # parsing JSON
         try:
             result = response.json()
         except:
@@ -58,6 +59,7 @@ def predict(text):
         return result
 
     try:
+        # handle output HF
         if isinstance(result, list):
             result = result[0]
 
@@ -80,7 +82,7 @@ menu = st.sidebar.selectbox("Menu", ["Input Teks", "Upload Dataset"])
 if menu == "Input Teks":
     st.subheader("📝 Analisis Satu Ulasan")
 
-    text = st.text_area("Masukkan teks")
+    text = st.text_area("Masukkan teks ulasan")
 
     if st.button("Analisis"):
         if text.strip() == "":
@@ -128,7 +130,6 @@ elif menu == "Upload Dataset":
 
                 emotion_df = pd.DataFrame(results)
 
-                # cek error kolom
                 if "error" in emotion_df.columns:
                     st.error("Sebagian data gagal diproses")
                     st.stop()
