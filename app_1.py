@@ -11,10 +11,9 @@ st.set_page_config(page_title="Analisis Emosi & Segmentasi", layout="wide")
 st.title("📊 Analisis Emosi & Segmentasi Nasabah")
 
 # =========================
-# API CONFIG
+# API MODEL (STABIL)
 # =========================
-PRIMARY_API = "https://api-inference.huggingface.co/models/envidevelopment/model2"
-FALLBACK_API = "https://api-inference.huggingface.co/models/w11wo/indonesian-roberta-base-sentiment-classifier"
+API_URL = "https://api-inference.huggingface.co/models/w11wo/indonesian-roberta-base-sentiment-classifier"
 
 HF_TOKEN = st.secrets.get("HF_TOKEN", "")
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
@@ -22,44 +21,42 @@ HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
 # =========================
 # SAFE API CALL
 # =========================
-def call_api(url, text):
+def call_api(text):
     try:
         response = requests.post(
-            url,
+            API_URL,
             headers=HEADERS,
             json={"inputs": text},
-            timeout=15
+            timeout=20
         )
 
+        # cek status
         if response.status_code != 200:
-            return None
+            return {"error": f"{response.status_code}: {response.text}"}
 
+        # cek kosong
         if not response.text.strip():
-            return None
+            return {"error": "Response kosong"}
 
         try:
-            return response.json()
+            result = response.json()
         except:
-            return None
+            return {"error": "Response bukan JSON"}
 
-    except:
-        return None
+        return result
+
+    except Exception as e:
+        return {"error": str(e)}
 
 # =========================
-# PREDICT FUNCTION (ANTI ERROR)
+# PREDICT FUNCTION
 # =========================
 def predict(text):
-    # coba model utama
-    result = call_api(PRIMARY_API, text)
+    result = call_api(text)
 
-    # fallback jika gagal
-    if result is None:
-        result = call_api(FALLBACK_API, text)
+    if isinstance(result, dict) and "error" in result:
+        return result
 
-    if result is None:
-        return {"error": "Model tidak tersedia / API gagal"}
-
-    # format hasil
     try:
         if isinstance(result, list):
             result = result[0]
@@ -131,9 +128,9 @@ elif menu == "Upload Dataset":
 
                 emotion_df = pd.DataFrame(results)
 
-                # cek error
+                # cek error kolom
                 if "error" in emotion_df.columns:
-                    st.error("Sebagian data gagal diproses (API error)")
+                    st.error("Sebagian data gagal diproses")
                     st.stop()
 
                 df = pd.concat([df, emotion_df], axis=1)
