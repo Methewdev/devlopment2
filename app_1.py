@@ -11,7 +11,7 @@ st.set_page_config(page_title="Analisis Emosi & Segmentasi", layout="wide")
 st.title("📊 Analisis Emosi & Segmentasi Nasabah")
 
 # =========================
-# MODEL API (UTAMA + FALLBACK)
+# API CONFIG
 # =========================
 PRIMARY_API = "https://api-inference.huggingface.co/models/envidevelopment/sentiment-banking"
 FALLBACK_API = "https://api-inference.huggingface.co/models/w11wo/indonesian-roberta-base-sentiment-classifier"
@@ -20,28 +20,57 @@ HF_TOKEN = st.secrets.get("HF_TOKEN", "")
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
 
 # =========================
-# PREDICT FUNCTION (SAFE)
+# SAFE API CALL
+# =========================
+def call_api(url, text):
+    try:
+        response = requests.post(
+            url,
+            headers=HEADERS,
+            json={"inputs": text},
+            timeout=15
+        )
+
+        if response.status_code != 200:
+            return None
+
+        if not response.text.strip():
+            return None
+
+        try:
+            return response.json()
+        except:
+            return None
+
+    except:
+        return None
+
+# =========================
+# PREDICT FUNCTION (ANTI ERROR)
 # =========================
 def predict(text):
+    # coba model utama
+    result = call_api(PRIMARY_API, text)
+
+    # fallback jika gagal
+    if result is None:
+        result = call_api(FALLBACK_API, text)
+
+    if result is None:
+        return {"error": "Model tidak tersedia / API gagal"}
+
+    # format hasil
     try:
-        # Coba model utama
-        response = requests.post(PRIMARY_API, headers=HEADERS, json={"inputs": text}, timeout=15)
-
-        if response.status_code == 200:
-            result = response.json()
-        else:
-            # fallback model publik
-            response = requests.post(FALLBACK_API, headers=HEADERS, json={"inputs": text}, timeout=15)
-            result = response.json()
-
-        # normalisasi output
         if isinstance(result, list):
             result = result[0]
 
-        return {item["label"]: float(item["score"]) for item in result}
+        return {
+            item.get("label", f"class_{i}"): float(item.get("score", 0))
+            for i, item in enumerate(result)
+        }
 
-    except Exception as e:
-        return {"error": str(e)}
+    except:
+        return {"error": "Format output tidak dikenali"}
 
 # =========================
 # MENU
@@ -49,12 +78,12 @@ def predict(text):
 menu = st.sidebar.selectbox("Menu", ["Input Teks", "Upload Dataset"])
 
 # =========================
-# MODE 1: INPUT TEKS
+# INPUT TEKS
 # =========================
 if menu == "Input Teks":
     st.subheader("📝 Analisis Satu Ulasan")
 
-    text = st.text_area("Masukkan teks ulasan")
+    text = st.text_area("Masukkan teks")
 
     if st.button("Analisis"):
         if text.strip() == "":
@@ -73,12 +102,12 @@ if menu == "Input Teks":
                 st.success(f"🎯 Emosi Dominan: {label}")
 
 # =========================
-# MODE 2: DATASET
+# UPLOAD DATASET
 # =========================
 elif menu == "Upload Dataset":
     st.subheader("📂 Upload Dataset CSV")
 
-    file = st.file_uploader("Upload CSV (kolom: text)")
+    file = st.file_uploader("Upload CSV (kolom wajib: text)")
 
     if file:
         try:
@@ -88,7 +117,7 @@ elif menu == "Upload Dataset":
                 st.error("CSV harus memiliki kolom 'text'")
                 st.stop()
 
-            st.write("Preview:")
+            st.write("### Preview Data")
             st.dataframe(df.head())
 
             if st.button("🚀 Proses Analisis"):
@@ -102,8 +131,9 @@ elif menu == "Upload Dataset":
 
                 emotion_df = pd.DataFrame(results)
 
+                # cek error
                 if "error" in emotion_df.columns:
-                    st.error("Terjadi error dari API model")
+                    st.error("Sebagian data gagal diproses (API error)")
                     st.stop()
 
                 df = pd.concat([df, emotion_df], axis=1)
@@ -121,7 +151,7 @@ elif menu == "Upload Dataset":
                 # =========================
                 # OUTPUT
                 # =========================
-                st.write("### 📊 Hasil")
+                st.write("### 📊 Hasil Data")
                 st.dataframe(df.head())
 
                 # =========================
@@ -132,7 +162,7 @@ elif menu == "Upload Dataset":
                 df["cluster"].value_counts().plot(kind="bar", ax=ax)
                 st.pyplot(fig)
 
-                st.write("### 🧠 Karakteristik Cluster")
+                st.write("### 🧠 Karakteristik Emosi per Cluster")
                 summary = df.groupby("cluster")[emotion_cols].mean()
                 st.dataframe(summary)
 
@@ -143,4 +173,4 @@ elif menu == "Upload Dataset":
                 st.download_button("⬇️ Download Hasil", csv, "hasil_analisis.csv")
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error membaca file: {e}")
