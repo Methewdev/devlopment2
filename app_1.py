@@ -3,6 +3,9 @@ import pandas as pd
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
+# =========================
+# CONFIG
+# =========================
 st.set_page_config(page_title="Analisis Emosi & Sarkasme", layout="wide")
 st.title("📊 Analisis Emosi, Sarkasme & Segmentasi Nasabah")
 
@@ -40,11 +43,29 @@ def detect_sarcasm(text):
         if pattern in text:
             return "Sarkasme Terdeteksi ⚠️"
 
-    # kombinasi positif + negatif
     if ("bagus" in text or "mantap" in text) and ("error" in text or "lambat" in text):
         return "Sarkasme Terdeteksi ⚠️"
 
     return "Tidak Sarkasme ✅"
+
+# =========================
+# WARNA OUTPUT
+# =========================
+def show_emotion(emotion):
+    if "Senang" in emotion:
+        st.success(f"🟢 Emosi: {emotion}")
+    elif "Marah" in emotion:
+        st.error(f"🔴 Emosi: {emotion}")
+    elif "Kecewa" in emotion:
+        st.warning(f"🟠 Emosi: {emotion}")
+    else:
+        st.info(f"🔵 Emosi: {emotion}")
+
+def show_sarcasm(sarcasm):
+    if "Sarkasme" in sarcasm:
+        st.markdown(f"### 🟣 {sarcasm}")
+    else:
+        st.markdown(f"### 🟢 {sarcasm}")
 
 # =========================
 # MENU
@@ -55,6 +76,8 @@ menu = st.sidebar.selectbox("Menu", ["Input Teks", "Upload Dataset"])
 # INPUT TEKS
 # =========================
 if menu == "Input Teks":
+    st.subheader("📝 Analisis Satu Ulasan")
+
     text = st.text_area("Masukkan teks ulasan")
 
     if st.button("Analisis"):
@@ -64,35 +87,62 @@ if menu == "Input Teks":
             emotion = predict_emotion(text)
             sarcasm = detect_sarcasm(text)
 
-            st.success(f"🎯 Emosi: {emotion}")
-            st.info(f"🧠 Sarkasme: {sarcasm}")
+            show_emotion(emotion)
+            show_sarcasm(sarcasm)
 
 # =========================
-# DATASET
+# UPLOAD DATASET
 # =========================
 elif menu == "Upload Dataset":
-    file = st.file_uploader("Upload CSV (kolom: text)")
+    st.subheader("📂 Upload Dataset CSV")
+
+    file = st.file_uploader("Upload CSV (kolom wajib: text)")
 
     if file:
         df = pd.read_csv(file)
 
         if "text" not in df.columns:
-            st.error("Kolom 'text' tidak ada")
+            st.error("CSV harus memiliki kolom 'text'")
             st.stop()
 
-        if st.button("Proses"):
+        st.write("### Preview Data")
+        st.dataframe(df.head())
+
+        if st.button("🚀 Proses Analisis"):
             df["emosi"] = df["text"].astype(str).apply(predict_emotion)
             df["sarkasme"] = df["text"].astype(str).apply(detect_sarcasm)
 
-            # clustering sederhana (encoding label)
+            # encoding untuk clustering
             df["emosi_num"] = df["emosi"].astype("category").cat.codes
 
+            # =========================
+            # CLUSTERING
+            # =========================
             kmeans = KMeans(n_clusters=3, random_state=42)
             df["cluster"] = kmeans.fit_predict(df[["emosi_num"]])
 
+            st.success("Analisis selesai!")
+
+            # =========================
+            # OUTPUT
+            # =========================
+            st.write("### 📊 Hasil Data")
             st.dataframe(df.head())
 
-            # visualisasi
+            # =========================
+            # VISUALISASI
+            # =========================
+            st.write("### 📈 Distribusi Cluster")
             fig, ax = plt.subplots()
             df["cluster"].value_counts().plot(kind="bar", ax=ax)
             st.pyplot(fig)
+
+            st.write("### 🧠 Ringkasan Emosi per Cluster")
+            summary = df.groupby("cluster")["emosi"].value_counts().unstack().fillna(0)
+            st.dataframe(summary)
+
+            # =========================
+            # DOWNLOAD
+            # =========================
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download Hasil", csv, "hasil_analisis.csv")
