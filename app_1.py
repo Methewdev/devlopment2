@@ -3,39 +3,48 @@ import pandas as pd
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(page_title="Analisis Emosi & Segmentasi", layout="wide")
-st.title("📊 Analisis Emosi & Segmentasi Nasabah")
+st.set_page_config(page_title="Analisis Emosi & Sarkasme", layout="wide")
+st.title("📊 Analisis Emosi, Sarkasme & Segmentasi Nasabah")
 
 # =========================
-# SIMPLE EMOTION RULE (STABLE)
+# DETEKSI EMOSI
 # =========================
-def predict(text):
+def predict_emotion(text):
     text = text.lower()
 
-    emotions = {
-        "senang": ["bagus", "mantap", "puas", "baik", "cepat"],
-        "marah": ["buruk", "jelek", "parah", "error", "gagal"],
-        "kecewa": ["kecewa", "lambat", "tidak", "kurang"],
-        "netral": []
-    }
+    if any(k in text for k in ["bagus", "mantap", "cepat", "puas"]):
+        return "Senang 😊"
+    elif any(k in text for k in ["buruk", "jelek", "error", "gagal"]):
+        return "Marah 😡"
+    elif any(k in text for k in ["lambat", "kecewa", "tidak sesuai"]):
+        return "Kecewa 😞"
+    else:
+        return "Netral 😐"
 
-    scores = {k: 0 for k in emotions}
+# =========================
+# DETEKSI SARKASME
+# =========================
+def detect_sarcasm(text):
+    text = text.lower()
 
-    for emo, keywords in emotions.items():
-        for word in keywords:
-            if word in text:
-                scores[emo] += 1
+    sarcasm_patterns = [
+        "mantap sekali padahal",
+        "bagus tapi",
+        "hebat ya padahal",
+        "terima kasih atas",
+        "luar biasa buruk",
+        "keren banget error",
+    ]
 
-    # normalisasi
-    total = sum(scores.values())
-    if total == 0:
-        scores["netral"] = 1
-        total = 1
+    for pattern in sarcasm_patterns:
+        if pattern in text:
+            return "Sarkasme Terdeteksi ⚠️"
 
-    return {k: v/total for k, v in scores.items()}
+    # kombinasi positif + negatif
+    if ("bagus" in text or "mantap" in text) and ("error" in text or "lambat" in text):
+        return "Sarkasme Terdeteksi ⚠️"
+
+    return "Tidak Sarkasme ✅"
 
 # =========================
 # MENU
@@ -46,15 +55,17 @@ menu = st.sidebar.selectbox("Menu", ["Input Teks", "Upload Dataset"])
 # INPUT TEKS
 # =========================
 if menu == "Input Teks":
-    text = st.text_area("Masukkan teks")
+    text = st.text_area("Masukkan teks ulasan")
 
     if st.button("Analisis"):
-        result = predict(text)
+        if text.strip() == "":
+            st.warning("Masukkan teks terlebih dahulu")
+        else:
+            emotion = predict_emotion(text)
+            sarcasm = detect_sarcasm(text)
 
-        st.json(result)
-
-        label = max(result, key=result.get)
-        st.success(f"Emosi Dominan: {label}")
+            st.success(f"🎯 Emosi: {emotion}")
+            st.info(f"🧠 Sarkasme: {sarcasm}")
 
 # =========================
 # DATASET
@@ -70,14 +81,14 @@ elif menu == "Upload Dataset":
             st.stop()
 
         if st.button("Proses"):
-            results = df["text"].astype(str).apply(predict)
-            emotion_df = pd.DataFrame(list(results))
+            df["emosi"] = df["text"].astype(str).apply(predict_emotion)
+            df["sarkasme"] = df["text"].astype(str).apply(detect_sarcasm)
 
-            df = pd.concat([df, emotion_df], axis=1)
+            # clustering sederhana (encoding label)
+            df["emosi_num"] = df["emosi"].astype("category").cat.codes
 
-            # clustering
             kmeans = KMeans(n_clusters=3, random_state=42)
-            df["cluster"] = kmeans.fit_predict(emotion_df)
+            df["cluster"] = kmeans.fit_predict(df[["emosi_num"]])
 
             st.dataframe(df.head())
 
