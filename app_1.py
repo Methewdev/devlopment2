@@ -4,48 +4,86 @@ import torch
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
 
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(page_title="Analisis Emosi & Segmentasi", layout="wide")
-st.title("📊 Analisis Emosi & Segmentasi Nasabah (Transformer)")
+st.set_page_config(page_title="Analisis Emosi", layout="wide")
+st.title("📊 Analisis Emosi & Segmentasi Nasabah")
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # =========================
-# LOAD MODEL (SAFE MODE)
+# LOAD MODEL (SAFE)
 # =========================
-@st.cache_resource
-def load_model():
-    PRIMARY_MODEL = "envidevelopment/sentiment-banking"  # model kamu
-    FALLBACK_MODEL = "indobenchmark/indobert-base-p1"   # model publik
+def load_model_safe():
+    PRIMARY_MODEL = "envidevelopment/sentiment-banking"
+    FALLBACK_MODEL = "indobenchmark/indobert-base-p1"
 
+    # Try primary
     try:
-        st.info("🔄 Loading model utama...")
         tokenizer = AutoTokenizer.from_pretrained(PRIMARY_MODEL)
         model = AutoModelForSequenceClassification.from_pretrained(PRIMARY_MODEL)
-        st.success("✅ Model utama berhasil dimuat")
+        return tokenizer, model, "primary"
+    except:
+        pass
 
-    except Exception as e:
-        st.warning("⚠️ Model utama gagal, pakai fallback model publik")
-        st.warning(str(e))
-
+    # Try fallback
+    try:
         tokenizer = AutoTokenizer.from_pretrained(FALLBACK_MODEL)
         model = AutoModelForSequenceClassification.from_pretrained(
             FALLBACK_MODEL,
             num_labels=6
         )
+        return tokenizer, model, "fallback"
+    except:
+        return None, None, "error"
+
+# =========================
+# LOAD ON DEMAND
+# =========================
+@st.cache_resource
+def get_model():
+    tokenizer, model, status = load_model_safe()
+
+    if status == "error":
+        return None, None, status
 
     model.to("cpu")
     model.eval()
 
-    return tokenizer, model
+    return tokenizer, model, status
 
-tokenizer, model = load_model()
+# =========================
+# UI LOAD BUTTON (IMPORTANT)
+# =========================
+if "model_loaded" not in st.session_state:
+    st.session_state.model_loaded = False
 
-# Label handling
+if not st.session_state.model_loaded:
+    if st.button("🔄 Load Model"):
+        tokenizer, model, status = get_model()
+
+        if status == "error":
+            st.error("❌ Semua model gagal diload")
+            st.stop()
+
+        if status == "fallback":
+            st.warning("⚠️ Menggunakan model fallback")
+
+        st.session_state.tokenizer = tokenizer
+        st.session_state.model = model
+        st.session_state.model_loaded = True
+
+        st.success("✅ Model berhasil dimuat")
+        st.rerun()
+
+    st.stop()
+
+# =========================
+# MODEL READY
+# =========================
+tokenizer = st.session_state.tokenizer
+model = st.session_state.model
+
+# Label aman
 if hasattr(model.config, "id2label"):
     id2label = model.config.id2label
 else:
@@ -59,16 +97,10 @@ else:
     }
 
 # =========================
-# PREDICT FUNCTION
+# PREDICT
 # =========================
 def predict(text):
-    inputs = tokenizer(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=128
-    )
+    inputs = tokenizer(text, return_tensors="pt", truncation=True)
 
     with torch.no_grad():
         outputs = model(**inputs)
@@ -86,78 +118,35 @@ menu = st.sidebar.selectbox("Menu", ["Input Teks", "Upload Dataset"])
 # INPUT TEKS
 # =========================
 if menu == "Input Teks":
-    st.subheader("📝 Analisis Satu Ulasan")
-
-    text = st.text_area("Masukkan teks ulasan")
+    text = st.text_area("Masukkan teks")
 
     if st.button("Analisis"):
-        if text.strip() == "":
-            st.warning("⚠️ Masukkan teks terlebih dahulu")
-        else:
+        if text.strip():
             result = predict(text)
             st.json(result)
-
-            label = max(result, key=result.get)
-            st.success(f"🎯 Emosi Dominan: {label}")
+        else:
+            st.warning("Isi teks dulu")
 
 # =========================
 # UPLOAD DATASET
 # =========================
 elif menu == "Upload Dataset":
-    st.subheader("📂 Upload Dataset CSV")
-
-    file = st.file_uploader("Upload file CSV (kolom: text)")
+    file = st.file_uploader("Upload CSV (kolom: text)")
 
     if file:
-        try:
-            df = pd.read_csv(file)
+        df = pd.read_csv(file)
 
-            if 'text' not in df.columns:
-                st.error("❌ CSV harus punya kolom 'text'")
-                st.stop()
+        if "text" not in df.columns:
+            st.error("Kolom 'text' tidak ditemukan")
+            st.stop()
 
-            st.write("Preview:")
+        if st.button("Proses"):
+            results = df["text"].astype(str).apply(predict)
+            emotion_df = pd.DataFrame(list(results))
+
+            df = pd.concat([df, emotion_df], axis=1)
+
+            kmeans = KMeans(n_clusters=3, random_state=42)
+            df["cluster"] = kmeans.fit_predict(emotion_df)
+
             st.dataframe(df.head())
-
-            if st.button("🚀 Proses"):
-                with st.spinner("Processing..."):
-
-                    # Predict
-                    results = df['text'].astype(str).apply(predict)
-                    emotion_df = pd.DataFrame(list(results))
-
-                    df = pd.concat([df, emotion_df], axis=1)
-
-                    # Clustering
-                    emotion_cols = list(emotion_df.columns)
-                    kmeans = KMeans(n_clusters=3, random_state=42)
-                    df['cluster'] = kmeans.fit_predict(df[emotion_cols])
-
-                st.success("✅ Selesai!")
-
-                # Show data
-                st.dataframe(df.head())
-
-                # Plot cluster
-                st.subheader("Distribusi Cluster")
-                fig, ax = plt.subplots()
-                df['cluster'].value_counts().plot(kind='bar', ax=ax)
-                st.pyplot(fig)
-
-                # Cluster summary
-                st.subheader("Karakteristik Cluster")
-                summary = df.groupby('cluster')[emotion_cols].mean()
-                st.dataframe(summary)
-
-                # Download
-                csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "⬇️ Download Hasil",
-                    csv,
-                    "hasil_analisis.csv",
-                    "text/csv"
-                )
-
-        except Exception as e:
-            st.error("❌ Error membaca file")
-            st.error(e)
