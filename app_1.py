@@ -1,113 +1,28 @@
-import os
 import streamlit as st
-import torch
+import requests
 import pandas as pd
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from sklearn.cluster import KMeans
 
 st.set_page_config(page_title="Analisis Emosi", layout="wide")
 st.title("📊 Analisis Emosi & Segmentasi Nasabah")
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# =========================
+# CONFIG API
+# =========================
+API_URL = "https://api-inference.huggingface.co/models/envidevelopment/sentiment-banking"
+HEADERS = {"Authorization": "Bearer YOUR_HF_TOKEN"}  # isi token kamu
 
 # =========================
-# LOAD MODEL (SAFE)
-# =========================
-def load_model_safe():
-    PRIMARY_MODEL = "envidevelopment/sentiment-banking"
-    FALLBACK_MODEL = "indobenchmark/indobert-base-p1"
-
-    # Try primary
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(PRIMARY_MODEL)
-        model = AutoModelForSequenceClassification.from_pretrained(PRIMARY_MODEL)
-        return tokenizer, model, "primary"
-    except:
-        pass
-
-    # Try fallback
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(FALLBACK_MODEL)
-        model = AutoModelForSequenceClassification.from_pretrained(
-            FALLBACK_MODEL,
-            num_labels=6
-        )
-        return tokenizer, model, "fallback"
-    except:
-        return None, None, "error"
-
-# =========================
-# LOAD ON DEMAND
-# =========================
-@st.cache_resource
-def get_model():
-    tokenizer, model, status = load_model_safe()
-
-    if status == "error":
-        return None, None, status
-
-    model.to("cpu")
-    model.eval()
-
-    return tokenizer, model, status
-
-# =========================
-# UI LOAD BUTTON (IMPORTANT)
-# =========================
-if "model_loaded" not in st.session_state:
-    st.session_state.model_loaded = False
-
-if not st.session_state.model_loaded:
-    if st.button("🔄 Load Model"):
-        tokenizer, model, status = get_model()
-
-        if status == "error":
-            st.error("❌ Semua model gagal diload")
-            st.stop()
-
-        if status == "fallback":
-            st.warning("⚠️ Menggunakan model fallback")
-
-        st.session_state.tokenizer = tokenizer
-        st.session_state.model = model
-        st.session_state.model_loaded = True
-
-        st.success("✅ Model berhasil dimuat")
-        st.rerun()
-
-    st.stop()
-
-# =========================
-# MODEL READY
-# =========================
-tokenizer = st.session_state.tokenizer
-model = st.session_state.model
-
-# Label aman
-if hasattr(model.config, "id2label"):
-    id2label = model.config.id2label
-else:
-    id2label = {
-        0: "senang",
-        1: "marah",
-        2: "kecewa",
-        3: "takut",
-        4: "netral",
-        5: "frustrasi"
-    }
-
-# =========================
-# PREDICT
+# PREDICT VIA API
 # =========================
 def predict(text):
-    inputs = tokenizer(text, return_tensors="pt", truncation=True)
+    response = requests.post(API_URL, headers=HEADERS, json={"inputs": text})
 
-    with torch.no_grad():
-        outputs = model(**inputs)
+    if response.status_code != 200:
+        return {"error": response.text}
 
-    probs = torch.nn.functional.softmax(outputs.logits, dim=1)[0]
+    result = response.json()[0]
 
-    return {id2label[i]: float(probs[i]) for i in range(len(probs))}
+    return {item['label']: item['score'] for item in result}
 
 # =========================
 # MENU
@@ -123,7 +38,11 @@ if menu == "Input Teks":
     if st.button("Analisis"):
         if text.strip():
             result = predict(text)
-            st.json(result)
+
+            if "error" in result:
+                st.error(result["error"])
+            else:
+                st.json(result)
         else:
             st.warning("Isi teks dulu")
 
@@ -137,16 +56,11 @@ elif menu == "Upload Dataset":
         df = pd.read_csv(file)
 
         if "text" not in df.columns:
-            st.error("Kolom 'text' tidak ditemukan")
+            st.error("Kolom 'text' tidak ada")
             st.stop()
 
         if st.button("Proses"):
-            results = df["text"].astype(str).apply(predict)
-            emotion_df = pd.DataFrame(list(results))
-
-            df = pd.concat([df, emotion_df], axis=1)
-
-            kmeans = KMeans(n_clusters=3, random_state=42)
-            df["cluster"] = kmeans.fit_predict(emotion_df)
+            results = df["text"].apply(predict)
+            df["hasil"] = results
 
             st.dataframe(df.head())
