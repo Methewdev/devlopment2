@@ -1,11 +1,7 @@
 import streamlit as st
-import torch
 import re
 
-from transformers import (
-    AutoTokenizer,
-    AutoModelForSequenceClassification
-)
+from transformers import pipeline
 
 # =====================================================
 # PAGE CONFIG
@@ -19,14 +15,28 @@ st.set_page_config(
 st.title("📊 Analisis Emosi Nasabah Livin")
 
 st.markdown(
-    "Deteksi Emosi berbasis IndoBERT sesuai proposal tesis"
+    "Analisis Emosi berbasis Transformer sesuai proposal tesis"
 )
 
 # =====================================================
-# MODEL CONFIG
+# LOAD PIPELINE
 # =====================================================
 
-MODEL_NAME = "indobenchmark/indobert-base-p1"
+@st.cache_resource
+def load_pipeline():
+
+    classifier = pipeline(
+        "text-classification",
+        model="indobenchmark/indobert-base-p1"
+    )
+
+    return classifier
+
+classifier = load_pipeline()
+
+# =====================================================
+# EMOTION LABEL
+# =====================================================
 
 emotion_classes = [
     "cemas",
@@ -36,26 +46,6 @@ emotion_classes = [
     "puas",
     "senang"
 ]
-
-# =====================================================
-# LOAD MODEL
-# =====================================================
-
-@st.cache_resource
-def load_model():
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_NAME
-    )
-
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME,
-        num_labels=6
-    )
-
-    return tokenizer, model
-
-tokenizer, model = load_model()
 
 # =====================================================
 # CLEANING
@@ -78,26 +68,24 @@ def clean_text(text):
     return text
 
 # =====================================================
-# IMPLICIT SARCASM HANDLING
+# SARCASM HANDLING
 # =====================================================
 
 positive_words = [
     "bagus",
     "mantap",
     "hebat",
-    "keren",
-    "terbaik"
+    "keren"
 ]
 
 negative_words = [
     "error",
     "gagal",
     "maintenance",
-    "lemot",
-    "pending"
+    "lemot"
 ]
 
-def sarcasm_boost(text, emotion):
+def detect_sarcasm(text):
 
     pos_found = any(
         word in text for word in positive_words
@@ -107,55 +95,33 @@ def sarcasm_boost(text, emotion):
         word in text for word in negative_words
     )
 
-    if pos_found and neg_found:
-
-        if emotion == "senang":
-
-            return "frustrasi"
-
-    return emotion
+    return pos_found and neg_found
 
 # =====================================================
-# PREDICTION
+# PREDICT
 # =====================================================
 
 def predict_emotion(text):
 
     cleaned = clean_text(text)
 
-    inputs = tokenizer(
-        cleaned,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=128
+    result = classifier(cleaned)
+
+    score = result[0]["score"]
+
+    label_id = int(
+        result[0]["label"].split("_")[-1]
     )
 
-    with torch.no_grad():
+    emotion = emotion_classes[
+        label_id % len(emotion_classes)
+    ]
 
-        outputs = model(**inputs)
+    if detect_sarcasm(cleaned):
 
-    probs = torch.softmax(
-        outputs.logits,
-        dim=1
-    )
+        emotion = "frustrasi"
 
-    prediction = torch.argmax(
-        probs,
-        dim=1
-    ).item()
-
-    confidence = probs[0][prediction].item()
-
-    emotion = emotion_classes[prediction]
-
-    # implicit sarcasm handling
-    emotion = sarcasm_boost(
-        cleaned,
-        emotion
-    )
-
-    return emotion, confidence
+    return emotion, score
 
 # =====================================================
 # INPUT
@@ -174,7 +140,7 @@ if st.button("Analisis"):
     if text.strip() == "":
 
         st.warning(
-            "Masukkan ulasan terlebih dahulu"
+            "Masukkan teks terlebih dahulu"
         )
 
     else:
@@ -209,12 +175,12 @@ if st.button("Analisis"):
         )
 
         st.metric(
-            "Confidence Score",
+            "Confidence",
             f"{confidence*100:.2f}%"
         )
 
 # =====================================================
-# EXAMPLE
+# SAMPLE
 # =====================================================
 
 st.markdown("---")
