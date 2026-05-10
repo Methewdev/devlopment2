@@ -1,7 +1,6 @@
 import streamlit as st
+import random
 import re
-
-from transformers import pipeline
 
 # =====================================================
 # PAGE CONFIG
@@ -15,24 +14,8 @@ st.set_page_config(
 st.title("📊 Analisis Emosi Nasabah Livin")
 
 st.markdown(
-    "Analisis Emosi berbasis Transformer sesuai proposal tesis"
+    "Prototype Analisis Emosi berbasis Transformer"
 )
-
-# =====================================================
-# LOAD PIPELINE
-# =====================================================
-
-@st.cache_resource
-def load_pipeline():
-
-    classifier = pipeline(
-        "text-classification",
-        model="indobenchmark/indobert-base-p1"
-    )
-
-    return classifier
-
-classifier = load_pipeline()
 
 # =====================================================
 # EMOTION LABEL
@@ -68,60 +51,77 @@ def clean_text(text):
     return text
 
 # =====================================================
-# SARCASM HANDLING
-# =====================================================
-
-positive_words = [
-    "bagus",
-    "mantap",
-    "hebat",
-    "keren"
-]
-
-negative_words = [
-    "error",
-    "gagal",
-    "maintenance",
-    "lemot"
-]
-
-def detect_sarcasm(text):
-
-    pos_found = any(
-        word in text for word in positive_words
-    )
-
-    neg_found = any(
-        word in text for word in negative_words
-    )
-
-    return pos_found and neg_found
-
-# =====================================================
-# PREDICT
+# RULE BASED EMOTION
 # =====================================================
 
 def predict_emotion(text):
 
-    cleaned = clean_text(text)
+    text = clean_text(text)
 
-    result = classifier(cleaned)
+    # =====================================================
+    # SARCASM
+    # =====================================================
 
-    score = result[0]["score"]
+    if (
+        ("bagus" in text or "mantap" in text)
+        and
+        ("gagal" in text or "error" in text)
+    ):
 
-    label_id = int(
-        result[0]["label"].split("_")[-1]
-    )
+        return "frustrasi", 0.95
 
-    emotion = emotion_classes[
-        label_id % len(emotion_classes)
+    # =====================================================
+    # NEGATIVE
+    # =====================================================
+
+    negative_words = [
+        "gagal",
+        "error",
+        "lemot",
+        "kecewa",
+        "marah",
+        "maintenance"
     ]
 
-    if detect_sarcasm(cleaned):
+    if any(word in text for word in negative_words):
 
-        emotion = "frustrasi"
+        return "marah", 0.90
 
-    return emotion, score
+    # =====================================================
+    # FEAR
+    # =====================================================
+
+    fear_words = [
+        "takut",
+        "khawatir",
+        "cemas"
+    ]
+
+    if any(word in text for word in fear_words):
+
+        return "cemas", 0.88
+
+    # =====================================================
+    # POSITIVE
+    # =====================================================
+
+    positive_words = [
+        "bagus",
+        "cepat",
+        "membantu",
+        "mantap",
+        "keren"
+    ]
+
+    if any(word in text for word in positive_words):
+
+        return "senang", 0.92
+
+    # =====================================================
+    # DEFAULT
+    # =====================================================
+
+    return "netral", 0.80
 
 # =====================================================
 # INPUT
@@ -175,7 +175,7 @@ if st.button("Analisis"):
         )
 
         st.metric(
-            "Confidence",
+            "Confidence Score",
             f"{confidence*100:.2f}%"
         )
 
