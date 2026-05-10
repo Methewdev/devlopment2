@@ -22,14 +22,16 @@ st.title("📊 Analisis Emosi Nasabah")
 # LOAD MODEL
 # =====================================================
 
-MODEL_PATH = "./model/emotion_model"
-
-TOKENIZER_PATH = "./model/tokenizer"
+MODEL_NAME = "indobenchmark/indobert-base-p1"
 
 tokenizer = AutoTokenizer.from_pretrained(
-    TOKENIZER_PATH
+    MODEL_NAME
 )
 
+model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_NAME,
+    num_labels=6
+)
 model = AutoModelForSequenceClassification.from_pretrained(
     MODEL_PATH
 )
