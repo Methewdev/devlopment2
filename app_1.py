@@ -1,148 +1,197 @@
 import streamlit as st
-import pandas as pd
-from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
+import torch
+import re
 
-# =========================
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification
+)
+
+# =====================================================
 # CONFIG
-# =========================
-st.set_page_config(page_title="Analisis Emosi & Sarkasme", layout="wide")
-st.title("📊 Analisis Emosi, Sarkasme & Segmentasi Nasabah")
+# =====================================================
 
-# =========================
-# DETEKSI EMOSI
-# =========================
+st.set_page_config(
+    page_title="Analisis Emosi Livin",
+    layout="centered"
+)
+
+st.title("📊 Analisis Emosi Nasabah")
+
+# =====================================================
+# LOAD MODEL
+# =====================================================
+
+MODEL_PATH = "./model/emotion_model"
+
+TOKENIZER_PATH = "./model/tokenizer"
+
+tokenizer = AutoTokenizer.from_pretrained(
+    TOKENIZER_PATH
+)
+
+model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_PATH
+)
+
+emotion_classes = [
+    "cemas",
+    "frustrasi",
+    "marah",
+    "netral",
+    "puas",
+    "senang"
+]
+
+# =====================================================
+# CLEANING
+# =====================================================
+
+def clean_text(text):
+
+    text = str(text).lower()
+
+    text = re.sub(r"http\S+", "", text)
+
+    text = re.sub(r"www\S+", "", text)
+
+    text = re.sub(r"@\w+", "", text)
+
+    text = re.sub(r"[^a-zA-Z0-9\s!?]", " ", text)
+
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+# =====================================================
+# SARCASM
+# =====================================================
+
+positive_words = [
+    "bagus",
+    "mantap",
+    "hebat",
+    "keren"
+]
+
+negative_words = [
+    "error",
+    "gagal",
+    "maintenance",
+    "lemot"
+]
+
+def sarcasm_boost(text, emotion):
+
+    pos_found = any(
+        word in text for word in positive_words
+    )
+
+    neg_found = any(
+        word in text for word in negative_words
+    )
+
+    if pos_found and neg_found:
+
+        if emotion == "senang":
+
+            return "frustrasi"
+
+    return emotion
+
+# =====================================================
+# PREDICT
+# =====================================================
+
 def predict_emotion(text):
-    text = text.lower()
 
-    if any(k in text for k in ["bagus", "mantap", "cepat", "puas"]):
-        return "Senang 😊"
-    elif any(k in text for k in ["buruk", "jelek", "error", "gagal"]):
-        return "Marah 😡"
-    elif any(k in text for k in ["lambat", "kecewa", "tidak sesuai"]):
-        return "Kecewa 😞"
-    else:
-        return "Netral 😐"
+    cleaned = clean_text(text)
 
-# =========================
-# DETEKSI SARKASME
-# =========================
-def detect_sarcasm(text):
-    text = text.lower()
+    inputs = tokenizer(
+        cleaned,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=128
+    )
 
-    sarcasm_patterns = [
-        "mantap sekali padahal",
-        "bagus tapi",
-        "hebat ya padahal",
-        "terima kasih atas",
-        "luar biasa buruk",
-        "keren banget error",
-    ]
+    with torch.no_grad():
 
-    for pattern in sarcasm_patterns:
-        if pattern in text:
-            return "Sarkasme Terdeteksi ⚠️"
+        outputs = model(**inputs)
 
-    if ("bagus" in text or "mantap" in text) and ("error" in text or "lambat" in text):
-        return "Sarkasme Terdeteksi ⚠️"
+    probs = torch.softmax(outputs.logits, dim=1)
 
-    return "Tidak Sarkasme ✅"
+    prediction = torch.argmax(probs, dim=1).item()
 
-# =========================
-# WARNA OUTPUT
-# =========================
-def show_emotion(emotion):
-    if "Senang" in emotion:
-        st.success(f"🟢 Emosi: {emotion}")
-    elif "Marah" in emotion:
-        st.error(f"🔴 Emosi: {emotion}")
-    elif "Kecewa" in emotion:
-        st.warning(f"🟠 Emosi: {emotion}")
-    else:
-        st.info(f"🔵 Emosi: {emotion}")
+    confidence = probs[0][prediction].item()
 
-def show_sarcasm(sarcasm):
-    if "Sarkasme" in sarcasm:
-        st.markdown(f"### 🟣 {sarcasm}")
-    else:
-        st.markdown(f"### 🟢 {sarcasm}")
+    emotion = emotion_classes[prediction]
 
-# =========================
-# MENU
-# =========================
-menu = st.sidebar.selectbox("Menu", ["Input Teks", "Upload Dataset"])
+    emotion = sarcasm_boost(
+        cleaned,
+        emotion
+    )
 
-# =========================
-# INPUT TEKS
-# =========================
-if menu == "Input Teks":
-    st.subheader("📝 Analisis Satu Ulasan")
+    return emotion, confidence
 
-    text = st.text_area("Masukkan teks ulasan")
+# =====================================================
+# INPUT
+# =====================================================
 
-    if st.button("Analisis"):
-        if text.strip() == "":
-            st.warning("Masukkan teks terlebih dahulu")
-        else:
-            emotion = predict_emotion(text)
-            sarcasm = detect_sarcasm(text)
+text = st.text_area(
+    "Masukkan ulasan nasabah"
+)
 
-            show_emotion(emotion)
-            show_sarcasm(sarcasm)
+# =====================================================
+# BUTTON
+# =====================================================
 
-# =========================
-# UPLOAD DATASET
-# =========================
-elif menu == "Upload Dataset":
-    st.subheader("📂 Upload Dataset CSV")
+if st.button("Analisis"):
 
-    file = st.file_uploader("Upload CSV (kolom wajib: text)")
+    emotion, confidence = predict_emotion(text)
 
-    if file:
-        df = pd.read_csv(file)
+    emotion_colors = {
+        "marah": "red",
+        "frustrasi": "orange",
+        "cemas": "purple",
+        "senang": "green",
+        "puas": "blue",
+        "netral": "gray"
+    }
 
-        if "text" not in df.columns:
-            st.error("CSV harus memiliki kolom 'text'")
-            st.stop()
+    color = emotion_colors.get(
+        emotion,
+        "black"
+    )
 
-        st.write("### Preview Data")
-        st.dataframe(df.head())
+    st.markdown(
+        f"""
+        <h2 style='color:{color};'>
+        {emotion.upper()}
+        </h2>
+        """,
+        unsafe_allow_html=True
+    )
 
-        if st.button("🚀 Proses Analisis"):
-            df["emosi"] = df["text"].astype(str).apply(predict_emotion)
-            df["sarkasme"] = df["text"].astype(str).apply(detect_sarcasm)
+    st.metric(
+        "Confidence",
+        f"{confidence*100:.2f}%"
+    )
 
-            # encoding untuk clustering
-            df["emosi_num"] = df["emosi"].astype("category").cat.codes
+# =====================================================
+# EXAMPLE
+# =====================================================
 
-            # =========================
-            # CLUSTERING
-            # =========================
-            kmeans = KMeans(n_clusters=3, random_state=42)
-            df["cluster"] = kmeans.fit_predict(df[["emosi_num"]])
+st.markdown("---")
 
-            st.success("Analisis selesai!")
+st.subheader("Contoh Sarkasme")
 
-            # =========================
-            # OUTPUT
-            # =========================
-            st.write("### 📊 Hasil Data")
-            st.dataframe(df.head())
+samples = [
+    "Bagus banget aplikasinya transfer gagal terus",
+    "Mantap maintenance tiap malam",
+    "Terima kasih login gagal"
+]
 
-            # =========================
-            # VISUALISASI
-            # =========================
-            st.write("### 📈 Distribusi Cluster")
-            fig, ax = plt.subplots()
-            df["cluster"].value_counts().plot(kind="bar", ax=ax)
-            st.pyplot(fig)
+for s in samples:
 
-            st.write("### 🧠 Ringkasan Emosi per Cluster")
-            summary = df.groupby("cluster")["emosi"].value_counts().unstack().fillna(0)
-            st.dataframe(summary)
-
-            # =========================
-            # DOWNLOAD
-            # =========================
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Download Hasil", csv, "hasil_analisis.csv")
+    st.code(s)
