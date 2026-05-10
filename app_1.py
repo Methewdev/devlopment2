@@ -6,24 +6,9 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification
 )
-import streamlit as st
 
-@st.cache_resource
-def load_model():
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        TOKENIZER_PATH
-    )
-
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_PATH
-    )
-
-    return tokenizer, model
-
-tokenizer, model = load_model()
 # =====================================================
-# CONFIG
+# PAGE CONFIG
 # =====================================================
 
 st.set_page_config(
@@ -31,25 +16,17 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("📊 Analisis Emosi Nasabah")
+st.title("📊 Analisis Emosi Nasabah Livin")
+
+st.markdown(
+    "Deteksi Emosi berbasis IndoBERT sesuai proposal tesis"
+)
 
 # =====================================================
-# LOAD MODEL
+# MODEL CONFIG
 # =====================================================
 
 MODEL_NAME = "indobenchmark/indobert-base-p1"
-
-tokenizer = AutoTokenizer.from_pretrained(
-    MODEL_NAME
-)
-
-model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_NAME,
-    num_labels=6
-)
-model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_PATH
-)
 
 emotion_classes = [
     "cemas",
@@ -59,6 +36,26 @@ emotion_classes = [
     "puas",
     "senang"
 ]
+
+# =====================================================
+# LOAD MODEL
+# =====================================================
+
+@st.cache_resource
+def load_model():
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_NAME
+    )
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_NAME,
+        num_labels=6
+    )
+
+    return tokenizer, model
+
+tokenizer, model = load_model()
 
 # =====================================================
 # CLEANING
@@ -81,21 +78,23 @@ def clean_text(text):
     return text
 
 # =====================================================
-# SARCASM
+# IMPLICIT SARCASM HANDLING
 # =====================================================
 
 positive_words = [
     "bagus",
     "mantap",
     "hebat",
-    "keren"
+    "keren",
+    "terbaik"
 ]
 
 negative_words = [
     "error",
     "gagal",
     "maintenance",
-    "lemot"
+    "lemot",
+    "pending"
 ]
 
 def sarcasm_boost(text, emotion):
@@ -117,7 +116,7 @@ def sarcasm_boost(text, emotion):
     return emotion
 
 # =====================================================
-# PREDICT
+# PREDICTION
 # =====================================================
 
 def predict_emotion(text):
@@ -136,14 +135,21 @@ def predict_emotion(text):
 
         outputs = model(**inputs)
 
-    probs = torch.softmax(outputs.logits, dim=1)
+    probs = torch.softmax(
+        outputs.logits,
+        dim=1
+    )
 
-    prediction = torch.argmax(probs, dim=1).item()
+    prediction = torch.argmax(
+        probs,
+        dim=1
+    ).item()
 
     confidence = probs[0][prediction].item()
 
     emotion = emotion_classes[prediction]
 
+    # implicit sarcasm handling
     emotion = sarcasm_boost(
         cleaned,
         emotion
@@ -165,35 +171,47 @@ text = st.text_area(
 
 if st.button("Analisis"):
 
-    emotion, confidence = predict_emotion(text)
+    if text.strip() == "":
 
-    emotion_colors = {
-        "marah": "red",
-        "frustrasi": "orange",
-        "cemas": "purple",
-        "senang": "green",
-        "puas": "blue",
-        "netral": "gray"
-    }
+        st.warning(
+            "Masukkan ulasan terlebih dahulu"
+        )
 
-    color = emotion_colors.get(
-        emotion,
-        "black"
-    )
+    else:
 
-    st.markdown(
-        f"""
-        <h2 style='color:{color};'>
-        {emotion.upper()}
-        </h2>
-        """,
-        unsafe_allow_html=True
-    )
+        emotion, confidence = predict_emotion(
+            text
+        )
 
-    st.metric(
-        "Confidence",
-        f"{confidence*100:.2f}%"
-    )
+        emotion_colors = {
+            "marah": "red",
+            "frustrasi": "orange",
+            "cemas": "purple",
+            "senang": "green",
+            "puas": "blue",
+            "netral": "gray"
+        }
+
+        color = emotion_colors.get(
+            emotion,
+            "black"
+        )
+
+        st.markdown("## Hasil Analisis")
+
+        st.markdown(
+            f"""
+            <h2 style='color:{color};'>
+            {emotion.upper()}
+            </h2>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.metric(
+            "Confidence Score",
+            f"{confidence*100:.2f}%"
+        )
 
 # =====================================================
 # EXAMPLE
