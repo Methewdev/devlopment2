@@ -6,7 +6,22 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification
 )
+import streamlit as st
 
+@st.cache_resource
+def load_model():
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        TOKENIZER_PATH
+    )
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_PATH
+    )
+
+    return tokenizer, model
+
+tokenizer, model = load_model()
 # =====================================================
 # CONFIG
 # =====================================================
